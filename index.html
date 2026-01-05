@@ -300,7 +300,7 @@
             cRem.forEach(c => { for(var r=0; r<GRID; r++) { if(starGrid[r][c]) { starsCollected++; starGrid[r][c] = false; } grid[r][c]=0; } });
             score += ((lines * 100) * lines) * combo;
             
-            if(gameMode === 'timed') { timeLeft += (lines * 15); showFloatingMsg("+"+(lines*15)+" SEC!"); }
+            if(gameMode === 'timed') { timeLeft += (lines * 10); showFloatingMsg("+"+(lines*10)+" SEC!"); }
             else {
                 var msg = combo > 6 ? "INSANE!" : combo > 4 ? "AMAZING!" : combo > 2 ? "GREAT!" : "GOOD!";
                 showFloatingMsg(msg);
