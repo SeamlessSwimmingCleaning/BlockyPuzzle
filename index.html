@@ -80,6 +80,7 @@
             display: flex; align-items: center; justify-content: space-between;
             width: 200px; margin: 20px 0; background: #222; padding: 10px; border-radius: 8px;
         }
+        #timer-ui { color: #FF3B30; font-size: 18px; }
     </style>
 </head>
 <body>
@@ -89,8 +90,9 @@
     <div id="scr-home" class="screen">
         <h1>BLOCK BLAST</h1>
         <p style="margin-top:20px;">Best: <span class="high-val">0</span></p>
-        <button class="primary" style="margin-top:30px;" onclick="setMode('endless'); startGame();">ENDLESS</button>
+        <button class="primary" style="margin-top:20px;" onclick="setMode('endless'); startGame();">ENDLESS</button>
         <button class="primary" style="margin-top:10px; background:#FF9500; border-color:#FFCC00;" onclick="setMode('stars'); startGame();">STAR MODE</button>
+        <button class="primary" style="margin-top:10px; background:#FF3B30; border-color:#FF5555;" onclick="setMode('timed'); startGame();">TIMED</button>
         <button style="margin-top:20px; font-size:14px;" onclick="showScreen('scr-theme')">CHOOSE THEME</button>
     </div>
 
@@ -119,7 +121,8 @@
     </div>
 
     <div id="scr-lose" class="screen hidden">
-        <h2 class="lose">YOU LOSE!!</h2>
+        <h2 class="lose">GAME OVER!</h2>
+        <p id="lose-msg">Out of moves!</p>
         <p>Final Score: <span id="final-score">0</span></p>
         <div class="btns" style="margin-top:20px; flex-direction:column;">
             <button class="success" style="font-size:20px;" onclick="startGame()">TRY AGAIN</button>
@@ -129,6 +132,7 @@
 
     <div id="ui">
         <div>Score:<br><span id="score">0</span></div>
+        <div id="timer-container" class="hidden">Time:<br><span id="timer-ui">60</span>s</div>
         <div id="combo-ui" style="color:#FFCC00; opacity:0;">Combo:<br><span id="combo-val">x1</span></div>
         <div>Best:<br><span id="best">0</span></div>
     </div>
@@ -149,26 +153,23 @@
     var canvas = document.getElementById('g'), ctx = canvas.getContext('2d');
     var scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), comboValEl = document.getElementById('combo-val'), comboUiEl = document.getElementById('combo-ui'), comboFillEl = document.getElementById('combo-fill'), comboMsgEl = document.getElementById('combo-msg');
     var starBar = document.getElementById('star-bar-container'), starFillEl = document.getElementById('star-fill'), sCurrEl = document.getElementById('s-curr'), sTargEl = document.getElementById('s-targ');
+    var timerContainer = document.getElementById('timer-container'), timerUi = document.getElementById('timer-ui');
     var settingsBtn = document.getElementById('settings-btn');
 
     var GRID = 8, score = 0, combo = 1, comboChances = 0, gameMode = 'endless', starsCollected = 0, starTarget = 5, isGameOver = false, gameRunning = false;
-    var soundEnabled = true;
+    var timeLeft = 60, timerInterval = null, soundEnabled = true;
     
-    // AUDIO FIX FOR IPHONE 6 / IOS 12
     var audioCtx = null;
     function initAudio() {
         if (!audioCtx) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            // Create a silent buffer to "wake up" the hardware
             var buffer = audioCtx.createBuffer(1, 1, 22050);
             var source = audioCtx.createBufferSource();
             source.buffer = buffer;
             source.connect(audioCtx.destination);
             source.start(0);
         }
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
-        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
     }
 
     var high = localStorage.getItem('bb_best') || 0;
@@ -220,7 +221,7 @@
         try { 
             if(audioCtx.state === 'suspended') audioCtx.resume();
             var osc = audioCtx.createOscillator(), gain = audioCtx.createGain(); 
-            osc.type = 'sine'; // Sine is smoother for old iOS speakers
+            osc.type = 'sine'; 
             osc.frequency.setValueAtTime(freq, audioCtx.currentTime); 
             gain.gain.setValueAtTime(0.1, audioCtx.currentTime); 
             gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur); 
@@ -298,8 +299,13 @@
             rRem.forEach(r => { for(var c=0; c<GRID; c++) { if(starGrid[r][c]) { starsCollected++; starGrid[r][c] = false; } grid[r][c]=0; } });
             cRem.forEach(c => { for(var r=0; r<GRID; r++) { if(starGrid[r][c]) { starsCollected++; starGrid[r][c] = false; } grid[r][c]=0; } });
             score += ((lines * 100) * lines) * combo;
-            var msg = combo > 6 ? "INSANE!" : combo > 4 ? "AMAZING!" : combo > 2 ? "GREAT!" : "GOOD!";
-            showFloatingMsg(msg);
+            
+            if(gameMode === 'timed') { timeLeft += (lines * 15); showFloatingMsg("+"+(lines*15)+" SEC!"); }
+            else {
+                var msg = combo > 6 ? "INSANE!" : combo > 4 ? "AMAZING!" : combo > 2 ? "GREAT!" : "GOOD!";
+                showFloatingMsg(msg);
+            }
+
             if(gameMode === 'stars' && starsCollected >= starTarget) { starTarget += 5; starsCollected = 0; showFloatingMsg("LEVEL UP!"); playTone(1200, 0.3); }
             playTone(800 + (combo * 100), 0.2);
         } else { if(comboChances > 0) comboChances--; if(comboChances <= 0) combo = 1; }
@@ -311,15 +317,41 @@
         comboFillEl.style.height = (combo > 1 ? (comboChances/5)*100 : 0) + "%";
         comboUiEl.style.opacity = combo > 1 ? "1" : "0"; comboValEl.innerText = "x" + combo;
         if(gameMode === 'stars') { starFillEl.style.height = (starsCollected / starTarget * 100) + "%"; sCurrEl.innerText = starsCollected; sTargEl.innerText = starTarget; }
+        if(gameMode === 'timed') { timerUi.innerText = Math.max(0, Math.ceil(timeLeft)); }
         if(score > high) { high = score; localStorage.setItem('bb_best', high); bestEl.innerText = high; document.querySelectorAll('.high-val').forEach(el => el.innerText = high); }
     }
 
-    function setMode(m) { initAudio(); gameMode = m; starBar.classList.toggle('hidden', m !== 'stars'); if(m === 'stars') { starTarget = 5; starsCollected = 0; } }
-    function startGame() { initAudio(); isGameOver = false; gameRunning = true; showScreen(null); resetGame(); render(); }
+    function setMode(m) { 
+        initAudio(); gameMode = m; 
+        starBar.classList.toggle('hidden', m !== 'stars');
+        timerContainer.classList.toggle('hidden', m !== 'timed');
+        if(m === 'stars') { starTarget = 5; starsCollected = 0; }
+        if(m === 'timed') { timeLeft = 60; }
+    }
+    
+    function startGame() { 
+        initAudio(); isGameOver = false; gameRunning = true; 
+        showScreen(null); resetGame(); render(); 
+        if(gameMode === 'timed') {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if(gameRunning && !isGameOver) {
+                    timeLeft -= 1; updateUI();
+                    if(timeLeft <= 0) { 
+                        isGameOver = true; 
+                        document.getElementById('lose-msg').innerText = "TIME'S UP!";
+                        document.getElementById('final-score').innerText = score; 
+                        showScreen('scr-lose'); playTone(150, 0.5); 
+                    }
+                }
+            }, 1000);
+        }
+    }
+
     function resetGame() { score = 0; combo = 1; comboChances = 0; starsCollected = 0; for(var i=0; i<GRID; i++) { grid[i].fill(0); starGrid[i].fill(false); } spawn(); updateUI(); }
     function showScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); if(id) { document.getElementById(id).classList.remove('hidden'); settingsBtn.classList.add('hidden'); } else { settingsBtn.classList.remove('hidden'); } }
     function closeSettings() { if(!gameRunning) showScreen('scr-home'); else showScreen(null); }
-    function goHome() { gameRunning = false; showScreen('scr-home'); }
+    function goHome() { gameRunning = false; clearInterval(timerInterval); showScreen('scr-home'); }
     function confirmReset() { initAudio(); playTone(200, 0.1); showScreen('scr-reset'); }
 
     function onStart(e) {
@@ -350,7 +382,12 @@
                 }
             }
         });
-        if(!anyPossible && pieces.length > 0) { isGameOver = true; document.getElementById('final-score').innerText = score; showScreen('scr-lose'); playTone(150, 0.5); } 
+        if(!anyPossible && pieces.length > 0) { 
+            isGameOver = true; 
+            document.getElementById('lose-msg').innerText = "OUT OF MOVES!";
+            document.getElementById('final-score').innerText = score; 
+            showScreen('scr-lose'); playTone(150, 0.5); 
+        } 
     }
 
     canvas.addEventListener('touchstart', onStart); canvas.addEventListener('touchmove', onMove, {passive:false}); canvas.addEventListener('touchend', onEnd);
