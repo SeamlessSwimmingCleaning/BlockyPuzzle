@@ -153,6 +153,23 @@
 
     var GRID = 8, score = 0, combo = 1, comboChances = 0, gameMode = 'endless', starsCollected = 0, starTarget = 5, isGameOver = false, gameRunning = false;
     var soundEnabled = true;
+    
+    // AUDIO FIX FOR IPHONE 6 / IOS 12
+    var audioCtx = null;
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            // Create a silent buffer to "wake up" the hardware
+            var buffer = audioCtx.createBuffer(1, 1, 22050);
+            var source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            source.start(0);
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
 
     var high = localStorage.getItem('bb_best') || 0;
     document.querySelectorAll('.high-val').forEach(el => el.innerText = high);
@@ -181,7 +198,7 @@
         card.className = 'theme-card' + (i === tIdx ? ' active' : '');
         card.innerHTML = `<div style="font-size:10px;margin-bottom:5px;">${t.name}</div>`;
         t.colors.forEach(c => card.innerHTML += `<div class="preview-block" style="background:${c}"><div style="position:absolute;top:0;left:0;width:100%;height:100%;border:2px solid rgba(255,255,255,0.2);box-sizing:border-box;"></div></div>`);
-        card.onclick = () => { tIdx = i; document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); playTone(440, 0.05); };
+        card.onclick = () => { initAudio(); tIdx = i; document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); playTone(440, 0.05); };
         themeList.appendChild(card);
     });
 
@@ -190,6 +207,7 @@
     for(var i=0; i<GRID; i++) { grid[i] = new Array(GRID).fill(0); starGrid[i] = new Array(GRID).fill(false); }
 
     function toggleSound() {
+        initAudio();
         soundEnabled = !soundEnabled;
         var btn = document.getElementById('sound-toggle');
         btn.innerText = soundEnabled ? "ON" : "OFF";
@@ -198,8 +216,17 @@
     }
 
     function playTone(freq, dur) { 
-        if(!soundEnabled) return;
-        try { var audioCtx = new (window.AudioContext || window.webkitAudioContext)(); var osc = audioCtx.createOscillator(), gain = audioCtx.createGain(); osc.type = 'square'; osc.frequency.setValueAtTime(freq, audioCtx.currentTime); gain.gain.setValueAtTime(0.05, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + dur); } catch(e){} 
+        if(!soundEnabled || !audioCtx) return;
+        try { 
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            var osc = audioCtx.createOscillator(), gain = audioCtx.createGain(); 
+            osc.type = 'sine'; // Sine is smoother for old iOS speakers
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime); 
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime); 
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur); 
+            osc.connect(gain); gain.connect(audioCtx.destination); 
+            osc.start(); osc.stop(audioCtx.currentTime + dur); 
+        } catch(e){} 
     }
     
     function showFloatingMsg(txt) { 
@@ -218,7 +245,6 @@
         ctx.arcTo(x + offset, y + bSize - offset, x + offset, y + offset, r);
         ctx.arcTo(x + offset, y + offset, x + bSize - offset, y + offset, r);
         ctx.closePath(); ctx.fillStyle = color; ctx.fill();
-
         ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = bSize * 0.12;
         ctx.beginPath(); ctx.moveTo(x + offset + (ctx.lineWidth/2), y + offset + r);
         ctx.lineTo(x + offset + (ctx.lineWidth/2), y + bSize - offset - r); ctx.stroke();
@@ -227,7 +253,6 @@
         ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath();
         ctx.arc(x + offset + (ctx.lineWidth/2) + 2, y + offset + (ctx.lineWidth/2) + 2, 3, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 2; ctx.stroke();
-
         if(hasStar) {
             ctx.fillStyle = "#FFCC00"; ctx.font = "bold " + (bSize*0.6) + "px Arial";
             ctx.textAlign = "center"; ctx.shadowBlur = 4; ctx.shadowColor = "black";
@@ -243,8 +268,7 @@
             var x = c * size, y = r * size;
             if(grid[r][c]) drawBlock(ctx, x, y, size, grid[r][c], starGrid[r][c]);
             else { ctx.fillStyle = '#222'; ctx.beginPath();
-                ctx.roundRect ? ctx.roundRect(x+2, y+2, size-4, size-4, 4) : ctx.rect(x+2, y+2, size-4, size-4);
-                ctx.fill();
+                ctx.rect(x+2, y+2, size-4, size-4); ctx.fill();
             }
         }
         pieces.forEach(p => { 
@@ -290,49 +314,17 @@
         if(score > high) { high = score; localStorage.setItem('bb_best', high); bestEl.innerText = high; document.querySelectorAll('.high-val').forEach(el => el.innerText = high); }
     }
 
-    function setMode(m) { gameMode = m; starBar.classList.toggle('hidden', m !== 'stars'); if(m === 'stars') { starTarget = 5; starsCollected = 0; } }
-    
-    function startGame() { 
-        isGameOver = false; gameRunning = true; 
-        showScreen(null); resetGame(); render(); 
-    }
-
-    function resetGame() { 
-        score = 0; combo = 1; comboChances = 0; starsCollected = 0; 
-        for(var i=0; i<GRID; i++) { grid[i].fill(0); starGrid[i].fill(false); } 
-        spawn(); updateUI(); 
-    }
-
-    function showScreen(id) { 
-        document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); 
-        if(id) {
-            document.getElementById(id).classList.remove('hidden'); 
-            settingsBtn.classList.add('hidden'); // Hide gear only when other screen is OPEN
-        } else {
-            settingsBtn.classList.remove('hidden'); // Keep gear on top during game
-        }
-    }
-
-    function closeSettings() {
-        if(!gameRunning) {
-            showScreen('scr-home');
-        } else {
-            showScreen(null);
-        }
-    }
-
-    function goHome() {
-        gameRunning = false;
-        showScreen('scr-home');
-    }
-
-    function confirmReset() { 
-        playTone(200, 0.1); 
-        showScreen('scr-reset'); 
-    }
+    function setMode(m) { initAudio(); gameMode = m; starBar.classList.toggle('hidden', m !== 'stars'); if(m === 'stars') { starTarget = 5; starsCollected = 0; } }
+    function startGame() { initAudio(); isGameOver = false; gameRunning = true; showScreen(null); resetGame(); render(); }
+    function resetGame() { score = 0; combo = 1; comboChances = 0; starsCollected = 0; for(var i=0; i<GRID; i++) { grid[i].fill(0); starGrid[i].fill(false); } spawn(); updateUI(); }
+    function showScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); if(id) { document.getElementById(id).classList.remove('hidden'); settingsBtn.classList.add('hidden'); } else { settingsBtn.classList.remove('hidden'); } }
+    function closeSettings() { if(!gameRunning) showScreen('scr-home'); else showScreen(null); }
+    function goHome() { gameRunning = false; showScreen('scr-home'); }
+    function confirmReset() { initAudio(); playTone(200, 0.1); showScreen('scr-reset'); }
 
     function onStart(e) {
         if(isGameOver || !gameRunning) return;
+        initAudio();
         var rect = canvas.getBoundingClientRect(), tx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, ty = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
         pieces.forEach(p => { if(tx > p.x-20 && tx < p.x+(p.s[0].length*size)+20 && ty > p.y-20 && ty < p.y+(p.s.length*size)+20) drag = p; });
     }
@@ -341,12 +333,9 @@
         if(!drag) return; var gx = Math.round(drag.x/size), gy = Math.round(drag.y/size);
         if(gy>=0 && gx>=0 && gy+drag.s.length<=GRID && gx+drag.s[0].length<=GRID && !drag.s.some((row, r) => row.some((c, col) => c && grid[gy+r][gx+col]))) {
             var blockCount = 0;
-            drag.s.forEach((row, r) => row.forEach((c, col) => { 
-                if(c) { grid[gy+r][gx+col] = drag.c; starGrid[gy+r][gx+col] = drag.stars[r][col]; blockCount++; }
-            }));
+            drag.s.forEach((row, r) => row.forEach((c, col) => { if(c) { grid[gy+r][gx+col] = drag.c; starGrid[gy+r][gx+col] = drag.stars[r][col]; blockCount++; } }));
             score += (blockCount * 10);
-            pieces.splice(pieces.indexOf(drag), 1); playTone(600, 0.05); check(); if(pieces.length === 0) spawn();
-            else checkGameOver();
+            pieces.splice(pieces.indexOf(drag), 1); playTone(600, 0.05); check(); if(pieces.length === 0) spawn(); else checkGameOver();
         } else { drag.x = drag.ox; drag.y = drag.oy; } drag = null;
     }
 
